@@ -1,17 +1,22 @@
 using OpenStreetMapX
-using GeoDataFrames
+import SimpleFeatures as sf
 using DataFrames
+import ArchGDAL as AG
 using ArchGDAL
 using Parsers
 import GeoFormatTypes as GFT
 using ProgressMeter
 using CSV
+using ProgressMeter
+using GeoInterface
 
+# Read in and parse the PBF file
 osm_path = "/Volumes/my_hd/osrm/nc_osrm/north-carolina-latest.osm.pbf"
 
 osmdata = get_map_data(osm_path)
 node_ids = collect(keys(osmdata.nodes))
 
+# Create an empty Dict for node lat/long data and populate
 node_geo_dict = Dict()
 
 @showprogress for i in node_ids #116.165786 seconds (269.81 M allocations: 19.727 GiB, 77.79% gc time, 0.02% compilation time)
@@ -19,25 +24,80 @@ node_geo_dict = Dict()
     node_geo_dict[i]= z
 end
 
+# Pull out the ways data
 ways = osmdata.roadways #id, nodes, tags
-way_geo_data = GeoDataFrames.DataFrame()
+
+# make edge list where every road SEGMENT is a separate line
+way_geo_data = DataFrames.DataFrame()
 
 @showprogress for i = 1:length(ways) #5 minutes
     selected_nodes = ways[i,].nodes
     tag_keys = keys(ways[i,].tags)
     b_or_t = "bridge" in tag_keys || "tunnel" in tag_keys
     
+    # Parse number of lanes or assign the default (2 lanes)
+    if "lanes" in tag_keys
+        lanes = tryparse(Int64, ways[i,].tags["lanes"])
+
+        if isnothing(lanes)
+            lanes = 2
+        end
+    else 
+        lanes = 2
+    end
+
+    # only collect the roadway if it is not a bridge or tunnel
     if b_or_t == false
         for j = 1:(length(selected_nodes)-1)
-            append!(way_geo_data, GeoDataFrames.DataFrame(way_id = ways[i,].id, from_node_id=selected_nodes[j], to_node_id = selected_nodes[j+1], geom = ArchGDAL.createlinestring([node_geo_dict[selected_nodes[j]][1],node_geo_dict[selected_nodes[j+1]][1]], [node_geo_dict[selected_nodes[j]][2],node_geo_dict[selected_nodes[j+1]][2]])))
+            append!(way_geo_data, DataFrames.DataFrame(way_id = ways[i,].id, from_node_id=selected_nodes[j], to_node_id = selected_nodes[j+1], lanes = lanes, geom = ArchGDAL.createlinestring([node_geo_dict[selected_nodes[j]][1],node_geo_dict[selected_nodes[j+1]][1]], [node_geo_dict[selected_nodes[j]][2],node_geo_dict[selected_nodes[j+1]][2]])))
         end
     end
 end
 
 
-@time GeoDataFrames.write("data/nc_road_lines_w_nodes.gpkg", way_geo_data; crs=GFT.EPSG(4326)) #4 minutes. MUST write to local disk and not external HD for speed. Otherwise will freeze
+# convert the list of dataframe containinig individual road segments into a SimpleFeature object
+ways_sf = df_to_sf(way_geo_data, GFT.EPSG(4326))
 
-# Create the impacted roads speed file to be used with osrm
+# Now re-create the roadways by combining the road segments by "way_id"
+ways_sf_mls = sf.st_cast(ways_sf, "multilinestring"; groupid = "way_id")
+
+# Write unprojected SimpleFeature objects to file
+@time sf.st_write("data/nc_road_lines_w_nodes.gpkg", ways_sf) #4 minutes. MUST write to local disk and not external HD for speed. Otherwise will freeze
+@time sf.st_write("data/nc_road_lines.gpkg", ways_sf_mls) #43 seconds. MUST write to local disk and not external HD for speed. Otherwise will freeze
+
+# Reproject from EPSG 4326 to UTM 17N (EPSG 6346). Make sure the 'order' is ':trad'
+@time ways_sf_proj = sf.st_transform(ways_sf, GFT.EPSG(6346), order = :trad)
+@time ways_sf_mls_proj = sf.st_transform(ways_sf_mls, GFT.EPSG(6346), order = :trad)
+
+# write projected SimpleFeature objects to file, ~7 minutes
+@time sf.st_write("data/nc_road_lines_w_nodes_proj.gpkg", ways_sf_proj) #MUST write to local disk and not external HD for speed. Otherwise will freeze
+@time sf.st_write("data/nc_road_lines_proj.gpkg", ways_sf_mls_proj) #MUST write to local disk and not external HD for speed. Otherwise will freeze
+
+# calculate buffer distance based on lanes. Number of lanes * 2.5 meters (units of CRS)
+ways_sf_mls_proj.df.buffer_distance = ways_sf_mls_proj.df.lanes * 2.5
+
+# buffer based on buffer distance column
+@time ways_sf_mls_buff = sf.st_buffer(ways_sf_mls_proj, "buffer_distance") # 20 minutes
+@time sf.st_write("data/nc_road_lines_proj_buff.gpkg", ways_sf_mls_buff) #MUST write to local disk and not external HD for speed. Otherwise will freeze
+
+#------------------------- Reading created files ------------------------------------
+# # read dfs from file if necessary
+# @time ways_sf = sf.st_read("data/nc_road_lines_w_nodes.gpkg")
+# @time ways_sf_mls = sf.st_read("data/nc_road_lines.gpkg")
+# @time ways_sf_mls_proj_buff = sf.st_read("data/nc_road_lines_proj_buff.gpkg")
+
+#-----------------------------------------------------------------------------------------------
+
+################################################################
+#############  BEFORE THE FOLLOWING STEPS, #####################
+#############  THE INTERSECTION OF BUFFERED  ###################      
+#############  ROADS AND HTF SHOULD BE  ########################
+#############  CALCULATED W/ARCGIS PRO  ########################
+################################################################
+
+#--------------------------------------------------------------
+
+# Speed file to be used with osrm
 # Read in the csv
 impacted_roads = DataFrame(CSV.File("/Volumes/my_hd/htf_on_roads/carteret_test_folder/impacted_roads.csv"))
 
@@ -54,37 +114,3 @@ select!(impacted_roads_speed_copy, [:from, :to, :speed])
 append!(impacted_roads_speed, impacted_roads_speed_copy)
 
 impacted_roads_speed
-# using JSON
-
-# microsoft_roads = DataFrame(CSV.File("/Volumes/my_hd/htf_on_roads/NC_microsoft_roads.tsv", delim = '\t'))
-
-# microsoft_road_string = JSON.parse.(microsoft_roads[:,1])
-
-# function dict2linestring(x::Dict)
-#     p = ArchGDAL.createlinestring()
-#     for i in 1:length(x["geometry"]["coordinates"])
-#         ArchGDAL.addpoint!(p, x["geometry"]["coordinates"][i][1], x["geometry"]["coordinates"][i][2])
-#     end
-
-#     GeoDataFrames.DataFrame(geom = p)
-# end
-
-
-# microsoft_roads_df = GeoDataFrames.DataFrame()
-
-# @showprogress for i in 1:length(microsoft_road_string)
-#     append!(microsoft_roads_df, dict2linestring(microsoft_road_string[i]))
-# end
-
-# @time GeoDataFrames.write("data/microsoft_roads.gpkg", microsoft_roads_df; crs=GFT.EPSG(4326)) #4 minutes. MUST write to local disk and not external HD for speed. Otherwise will freeze
-
-# ArchGDAL.fromJSON(test_geo_string)
-
-# collected_json_strings = Dict("type"=>"FeatureCollection", "features"=> [JSON.parse.(microsoft_roads[1:1000,1])])
-
-# stringdata = JSON.json(collected_json_strings)
-
-# open("write_test.geojson", "w") do f
-#     write(f, stringdata)
-#  end
-
