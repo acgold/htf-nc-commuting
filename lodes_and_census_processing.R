@@ -14,8 +14,7 @@ nc_lodes <- grab_lodes(state="NC", year = 2019, lodes_type = "od", job_type = "J
 nc_blocks <- get_decennial(geography = "block", variables = "H010001", state = "NC", geometry = T)
 
 # Write census block data to file. We will be using the CSV later
-# sf::write_sf(nc_blocks, "carteret_blocks_text.gpkg")
-write_csv(nc_blocks, "data/carteret_blocks_test.csv")
+write_csv(nc_blocks, "data/blocks.csv")
 
 # Get the centroid of each census block and extract coordinates
 nc_blocks_centroid <- nc_blocks |> 
