@@ -2,11 +2,15 @@
 
 High tide flooding (HTF) is a less-extreme but more frequent type of flooding that is increasingly impacting coastal areas. This chronic flooding can have negative impacts on infrastructure and people, especially through road closures. 
 
-Previous analyses focused on HTF and commutes have used low-resolution data from national sources to estimate the location and depth of these floodwaters, but the resolution of floodwater extent data is important in low-slope areas such as coastal North Carolina, USA. Additionally, most analyses rely on floodwater depth to estimate how road speeds will be reduced during flooding, but this approach does not capture flooding that covers some or most of the roadway and would likely cause roadway speed reductions.
+Most analyses of flooding and commutes have used low-resolution data over large areas to estimate the location and depth of floodwaters, but the resolution of floodwater extent data is important. In low-slope areas such as coastal North Carolina USA, small differences in water level can have large differences in the area of inundation. Additionally, most analyses rely on floodwater depth to estimate how road speeds will be reduced during flooding, but this approach does not capture flooding that covers some or most of the roadway and would likely cause roadway speed reductions. In summary, low-resolution data used to estimate impacts of HTF likely does not capture important nuances in impact.
 
 This analysis circumvents these previous limitations by using high-resolution elevation data (1-meter) to model a range of water levels within the HTF range. Paired with concurrent OpenStreetMap road network data, these higher resolution data produce more precise impact estimates and allow for the production of confidence intervals. We then use LODES commute data and Census block data to determine characteristics of people whose commutes are impacted by various levels of HTF.
 
 # Methods
+
+This analysis makes use of publicly available road ([OpenStreetMap](https://www.openstreetmap.org/#map=4/38.01/-95.84)), commute ([LEHD LODES](https://lehd.ces.census.gov/data/)), and [census block data](https://walker-data.com/tidycensus/).
+
+We use `Julia`, `R`, and ArcGIS Pro for different steps of processing and analysis. Effort was made to use Julia as much as possible to maximize efficiency, but `R` ([`Terra`](https://rspatial.org/terra/pkg/index.html) package) is used for water level modelling and ArcGIS Pro is used for raster -> polygon conversion and finding the intersection between HTF and roadways.
 
 The steps of this analysis are:
 
