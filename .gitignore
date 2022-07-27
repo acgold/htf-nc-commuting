@@ -1,5 +1,6 @@
 /data
 .DS_store
+census_env_var.R
 
 ## Python
 # Byte-compiled / optimized / DLL files
