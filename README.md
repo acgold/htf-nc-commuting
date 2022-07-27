@@ -8,7 +8,7 @@ This analysis circumvents these previous limitations by using high-resolution el
 
 # Methods
 
-This analysis makes use of publicly available road ([OpenStreetMap](https://www.openstreetmap.org/#map=4/38.01/-95.84)), commute ([LEHD LODES](https://lehd.ces.census.gov/data/)), and [census block data](https://walker-data.com/tidycensus/).
+This analysis makes use of publicly available road ([OpenStreetMap](https://www.openstreetmap.org/#map=4/38.01/-95.84)), commute ([LEHD LODES](https://lehd.ces.census.gov/data/)),  [census block](https://walker-data.com/tidycensus/), and elevation data ([NOAA CoNED Topobathy](https://www.fisheries.noaa.gov/inport/item/67013)).
 
 We use `Julia`, `R`, and ArcGIS Pro for different steps of processing and analysis. Effort was made to use Julia as much as possible to maximize efficiency, but `R` ([`Terra`](https://rspatial.org/terra/pkg/index.html) package) is used for water level modelling and ArcGIS Pro is used for raster -> polygon conversion and finding the intersection between HTF and roadways.
 
