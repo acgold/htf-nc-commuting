@@ -1,0 +1,17 @@
+name: osrm
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - requests
+  - pandas
+  - ca-certificates
+  - certifi
+  - openssl
+  - rasterio
+  - geopandas
+  - pyarrow
+  - xarray
+  - rioxarray
+  - dask
+prefix: /Users/adam/mambaforge/envs/osrm

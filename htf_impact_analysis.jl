@@ -2,7 +2,6 @@ import SimpleFeatures as sf
 using DataFrames
 import ArchGDAL as AG
 using ProgressMeter
-using ProgressMeter
 using GeoInterface
 
 #------------------------- Measuring and summarizing impact of HTF on roadways -------------------

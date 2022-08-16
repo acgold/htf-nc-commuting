@@ -1,4 +1,9 @@
+# install.packages("terra")
 library(terra)
+
+# Set path for longleaf
+# setwd("/pine/scr/a/c/acgold")
+setwd("my_hd/ht_on_roads/files_for_longleaf")
 
 #----------- Overview ----------------------
 # This file creates modeled:
@@ -6,6 +11,7 @@ library(terra)
 # - Water depth surfaces
 # - Error surfaces
 # - Classified error surfaces
+# - Polygons representing classified error surfaces
 
 # To do this, we will:
 # 1. Use a conversion factor between NAVD88 and MHHW to 
@@ -17,48 +23,35 @@ library(terra)
 #---------------- Converting DEM to MHHW -------------------
 
 # Load large, unmodified NOAA DEM for NC. 1-meter horizontal resolution
-original_dem <- terra::rast("/Volumes/my_hd/htf_on_roads/noaa_elevation/North_Carolina_CoNED_Topobathy_DEM_1m.tif")
+original_dem <- terra::rast("North_Carolina_CoNED_Topobathy_DEM_1m.tif")
 
 # Load original resolution MHHW conversion, much coarser resolution
-original_MHHW_conversion <- terra::rast("/Volumes/my_hd/htf_on_roads/NOAA_OCM_MHHWInterpolatedSurface/nc_mhhw_navd88_proj.tif") |>
-  terra::project(crs(original_dem))
+original_MHHW_conversion <- terra::rast("mhhw_navd88_reproj.tif") 
 
 # Resammple MHHW conversion raster to original DEM's resolution
-original_MHHW_conversion |>
-  terra::resample(y=original_dem, method = "near", filename="/Volumes/my_hd/htf_on_roads/NOAA_OCM_MHHWInterpolatedSurface/terra_resamp_mhhw_conv.tif")
-
-# read back in the resampled conversion raster
-resampled_MHHW_conversion <- terra::rast("/Volumes/my_hd/htf_on_roads/NOAA_OCM_MHHWInterpolatedSurface/terra_resamp_mhhw_conv.tif")
+resampled_MHHW_conversion <- original_MHHW_conversion |>
+  terra::resample(y=original_dem, method = "near", filename="output/dems/resampled_mhhw_conv.tif", todisk = T)
 
 # Combine the original DEM and matching resolution conversion raster
 dem_and_conversion <- c(original_dem, resampled_MHHW_conversion)
 
 # Convert the original DEM to the MHHW datum using the resampled conversion raster
-# could use overlay with the following function and it might be faster
-new_dem <- lapp(dem_and_conversion,fun=function(x,y){return(x-y)},
+# could use overlay with the following function and it might be faster?
+mhhw_dem <- lapp(dem_and_conversion,fun=function(x,y){return(x-y)},
                 overwrite = T,
-                filename = "/Volumes/my_hd/htf_on_roads/noaa_elevation/terra_noaa_mhhw_dem_1m.tif")
+                filename = "output/dems/mhhw_dem_1m.tif")
 
 #--------------- Reducing raster sizes ------------------
-# # This clipping code is just for testing purposes.
-# sample_extent <- terra::vect("/Users/adam/Downloads/carteret_boundary.gpkg")
-# 
-# clipped_dem <- terra::crop(mini_dem, ext(sample_extent |> 
-#                                            terra::project(terra::crs(mini_dem))),
-#                            overwrite=T,
-#                            filename="/Volumes/my_hd/htf_on_roads/noaa_elevation/carteret_test_dem.tif")
-# 
-# clipped_dem <- terra::rast("/Volumes/my_hd/htf_on_roads/noaa_elevation/carteret_test_dem.tif")
-
 # Filter out elevations that we know we will not need to decrease raster size.
 # This only keeps values from 0 to 5 m MHHW. We will read this raster in later
-terra::clamp(
+mini_dem <- terra::clamp(
   mhhw_dem,
   lower = 0,
   upper = 5,
   values = F,
   overwrite = T,
-  filename = "/Volumes/my_hd/htf_on_roads/noaa_elevation/terra_noaa_zero_to_5m.tif"
+  filename = "output/dems/mhhw_zero_to_5m.tif",
+  todisk = T
 )
 
 #------------------ Modelling function ----------------------
@@ -73,7 +66,7 @@ create_water_surfaces <- function(max_wl, min_wl = 0, dem, overwrite=F, director
   muc = sqrt(dem_rmse^2 + conv_rmse^2)/100 # in meters. About 0.364
   
   cat("* Modelling water level between", min_wl, "and", max_wl, "meters","\n")
-  cat("(1/4) extracting land DEM....", "\n")
+  cat("(1/5) extracting land DEM....", "\n")
   
   # We will select the raster values that are above our min_wl (zero) and below our upper_wl (the value that has a 20% chance of impact)
   land_dem <- terra::clamp(dem, 
@@ -81,7 +74,8 @@ create_water_surfaces <- function(max_wl, min_wl = 0, dem, overwrite=F, director
                            upper= max_wl - (qnorm(0.2)*muc),
                            values=F,
                            overwrite = T,
-                           filename = file.path(directory, "impacted_land_dem.tif"))
+                           filename = file.path(directory, "impacted_land_dem.tif"),
+                           todisk = T)
   
   m <- c(min_wl, max_wl, max_wl)
   rclmat <- matrix(m, ncol=3, byrow=TRUE)
@@ -95,23 +89,27 @@ create_water_surfaces <- function(max_wl, min_wl = 0, dem, overwrite=F, director
   #                                  overwrite = overwrite,
   #                                  filename = file.path(directory, "water_surface.tif"))
   
-  cat("(2/4) calculating water depth....", "\n")
+  cat("(2/5) calculating water depth....", "\n")
   
   water_depth <- terra::app(land_dem,
                             fun = function(x){
                               return(max_wl - x)
                             },
                             overwrite = overwrite,
-                            filename = file.path(directory,"water_depth.tif"))
+                            cores = 32,
+                            filename = file.path(directory,"water_depth.tif"),
+                            todisk = T)
   
   # Methods from Schmid et al., 2014 - https://doi.org/10.2112/JCOASTRES-D-13-00118.1
-  cat("(3/4) calculating inundation error....", "\n")
+  cat("(3/5) calculating inundation error....", "\n")
   DEM_error_rast <- terra::app(land_dem,
                                fun = function(x){
                                  return(pnorm((max_wl - x)/muc))
                                },
                                overwrite = overwrite,
-                               filename = file.path(directory,"error.tif"))
+                               cores = 32,
+                               filename = file.path(directory,"error.tif"),
+                               todisk = T)
   
   m_error <- c(0.5, 0.8, 0,
                0.8, 1.0, 1)
@@ -121,29 +119,35 @@ create_water_surfaces <- function(max_wl, min_wl = 0, dem, overwrite=F, director
   # Low is 50 - 80% and high is greater than 80% likelihood of inundation.
   # Not using anything less than 50%
   
-  cat("(4/4) classifying error classes....", "\n")
+  cat("(4/5) classifying error classes....", "\n")
   error_surface <- terra::classify(DEM_error_rast,
                                    rcl = rclmat_error,
                                    others = NA,
                                    right = NA,
                                    overwrite = overwrite,
                                    filename = file.path(directory, "class_error.tif"),
-                                   datatype = 'INT4U')
+                                   datatype = 'INT4U',
+                                   todisk = T)
+
+  cat("(5/5) converting error classes to polygon")
+  
+  error_vect <- terra::as.polygons(error_surface)
+  terra::writeVector(error_vect, file.path(directory, "class_error.gpkg"))
 }
 
 #-------------------- Loop for modelling --------------------
 
 time <- Sys.time()
 
-mhhw_dem <- terra::rast("/Volumes/my_hd/htf_on_roads/noaa_elevation/terra_noaa_mhhw_dem_1m.tif")
-mini_dem <- terra::rast("/Volumes/my_hd/htf_on_roads/noaa_elevation/terra_noaa_zero_to_5m.tif")
+# mhhw_dem <- terra::rast("/output/dems/mhhw_dem_1m.tif")
+# mini_dem <- terra::rast("/output/dems/mhhw_zero_to_5m.tif")
 
-# # make water level below zero m to get permanent water surface
-# create_water_surfaces(dem = mhhw_dem,
-#                       max_wl = 0,
-#                       min_wl = -100,
-#                       overwrite=T,
-#                       directory = "/Volumes/my_hd/htf_on_roads/noaa_elevation/water_level_modelling/below_zero")
+# make water level below zero m to get permanent water surface
+create_water_surfaces(dem = mhhw_dem,
+                      max_wl = 0,
+                      min_wl = -100,
+                      overwrite=T,
+                      directory = "output/model_results/water_mask")
 
 # max water levels
 water_levels <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
@@ -154,8 +158,7 @@ for(i in 1:length(water_levels)){
                         max_wl = water_levels[i],
                         min_wl = 0,
                         overwrite=T,
-                        directory = file.path("/Volumes/my_hd/htf_on_roads/noaa_elevation/water_level_modelling",water_level_labels[i]))
+                        directory = file.path("output/model_results/",water_level_labels[i]))
 }
 
 Sys.time() - time
-
