@@ -1,4 +1,4 @@
-import SimpleFeatures as sf
+import SimpleFeatures as SF
 using DataFrames
 import ArchGDAL as AG
 using ProgressMeter
@@ -6,7 +6,10 @@ using GeoInterface
 
 #------------------------- Measuring and summarizing impact of HTF on roadways -------------------
 # Load road segments. We will use the 'road_segments' for every calculation
-road_segments = sf.st_read("data/nc_road_lines_w_nodes_proj.gpkg")
+road_segments = SF.st_read("data/nc_road_lines_w_nodes_proj.gpkg")
+
+# Load buffered roadways
+buffered_roads = SF.st_read("data/nc_road_lines_w_nodes_proj.gpkg")
 
 # Define our 'impact' function. Here's how it works:
 #   STEPS

@@ -1,7 +1,4 @@
 import os
-# Set the working directory
-os.chdir("/pine/scr/a/c/acgold")
-
 
 from pickletools import uint8
 import rioxarray as rio
@@ -55,7 +52,7 @@ def create_water_surfaces(dem_xarray, max_wl, directory, min_wl = 0):
     
     # Write the land dem to disk with dask
     with ProgressBar():
-        land_dem.rio.to_raster(Path(directory, "land_dem.tif"), windowed=True, lock=threading.Lock(), compress='lzw')
+        land_dem.rio.to_raster(Path(directory, "land_dem.tif"), windowed=True, lock=threading.Lock(), tiled = True, compress='lzw', BIGTIFF="YES")
     
     
     #-------------- Step 2 --------------------
@@ -65,7 +62,7 @@ def create_water_surfaces(dem_xarray, max_wl, directory, min_wl = 0):
     water_depth.rio.write_crs(spatial_ref, inplace=True)
     
     with ProgressBar():
-        water_depth.rio.to_raster(Path(directory, "water_depth.tif"), windowed=True, lock=threading.Lock(), compress='lzw')
+        water_depth.rio.to_raster(Path(directory, "water_depth.tif"), windowed=True, lock=threading.Lock(), tiled = True, compress='lzw', BIGTIFF="YES")
     
     
     #-------------- Step 3 --------------------
@@ -75,7 +72,7 @@ def create_water_surfaces(dem_xarray, max_wl, directory, min_wl = 0):
     inundation_error.rio.write_crs(spatial_ref, inplace=True)
 
     with ProgressBar():
-        inundation_error.rio.to_raster(Path(directory, "error.tif"), windowed=True, lock=threading.Lock(), compress='lzw')
+        inundation_error.rio.to_raster(Path(directory, "error.tif"), windowed=True, lock=threading.Lock(), tiled = True, compress='lzw', BIGTIFF="YES")
 
 
     #-------------- Step 4 --------------------
@@ -94,93 +91,126 @@ def create_water_surfaces(dem_xarray, max_wl, directory, min_wl = 0):
     error_class.rio.write_crs(spatial_ref, inplace=True)
 
     with ProgressBar():
-        error_class.rio.to_raster(Path(directory, "error_class.tif"),dtype= "int16", windowed=True, lock=threading.Lock(), compress='lzw') 
+        error_class.rio.to_raster(Path(directory, "error_class.tif"),dtype= "int16", windowed=True, lock=threading.Lock(), tiled = True, compress='lzw', BIGTIFF="YES") 
 
-    #-------------- Step 5 --------------------
-    print("(5/5) converting error classes to polygon ....")
+    # #-------------- Step 5 --------------------
+    # print("(5/5) converting error classes to polygon ....")
     
-    with rasterio.open(Path(directory, "error_class.tif")) as src:
-        crs = to_string(src.crs)
-        src_band = src.read(1)
-        # Keep track of unique pixel values in the input band
-        unique_values = np.array([0, 1], dtype="int16")
-        # np.unique(src_band)
-        # Polygonize with Rasterio. `shapes()` returns an iterable
-        # of (geom, value) as tuples
-        shapes = list(rasterio.features.shapes(src_band, transform=src.transform))
+    # with rasterio.open(Path(directory, "error_class.tif")) as src:
+    #     crs = to_string(src.crs)
+    #     src_band = src.read(1)
+    #     # Keep track of unique pixel values in the input band
+    #     unique_values = np.array([0, 1], dtype="int16")
+    #     # np.unique(src_band)
+    #     # Polygonize with Rasterio. `shapes()` returns an iterable
+    #     # of (geom, value) as tuples
+    #     shapes = list(rasterio.features.shapes(src_band, transform=src.transform))
 
-    shp_schema = {
-        'geometry': 'MultiPolygon',
-        'properties': {'pixelvalue': 'int'}
-    }
+    # shp_schema = {
+    #     'geometry': 'MultiPolygon',
+    #     'properties': {'pixelvalue': 'int'}
+    # }
     
-    # Get a list of all polygons for a given pixel value
-    # and create a MultiPolygon geometry with shapely.
-    # Then write the record to an output shapefile with fiona.
-    # We make use of the `shape()` and `mapping()` functions from
-    # shapely to translate between the GeoJSON-like dict format
-    # and the shapely geometry type.
-    with fiona.open(Path(directory, "error_class.shp"), 'w', 'ESRI Shapefile', shp_schema, crs) as shp:
-        for pixel_value in unique_values:
-            polygons = [shape(geom) for geom, value in shapes
-                        if value == pixel_value]
-            multipolygon = MultiPolygon(polygons)
-            shp.write({
-                'geometry': mapping(multipolygon),
-                'properties': {'pixelvalue': int(pixel_value)}
-            })
+    # # Get a list of all polygons for a given pixel value
+    # # and create a MultiPolygon geometry with shapely.
+    # # Then write the record to an output shapefile with fiona.
+    # # We make use of the `shape()` and `mapping()` functions from
+    # # shapely to translate between the GeoJSON-like dict format
+    # # and the shapely geometry type.
+    # with fiona.open(Path(directory, "error_class.shp"), 'w', 'ESRI Shapefile', shp_schema, crs) as shp:
+    #     for pixel_value in unique_values:
+    #         polygons = [shape(geom) for geom, value in shapes
+    #                     if value == pixel_value]
+    #         multipolygon = MultiPolygon(polygons)
+    #         shp.write({
+    #             'geometry': mapping(multipolygon),
+    #             'properties': {'pixelvalue': int(pixel_value)}
+    #         })
         
     return print("Done!")
 
 #------------------ modelling loop -------------------------
+# Set the working directory
+os.chdir("/pine/scr/a/c/acgold/xarray_output")
 
 # Create necessary folders
 Path("output/dems").mkdir(parents=True, exist_ok= True)
 Path("output/model_results").mkdir(parents=True, exist_ok= True)
 
+# # Load original DEM
+# dem = "North_Carolina_CoNED_Topobathy_DEM_1m.tif"
+# dem_xarray = rio.open_rasterio(dem, chunks=True, lock=False)
 
-# Load original DEM
-# dem = "/Volumes/my_hd/htf_on_roads/noaa_elevation/North_Carolina_CoNED_Topobathy_DEM_1m.tif"
-# dem = "/Volumes/my_hd/htf_on_roads/noaa_elevation/xarray_test/land_dem.tif"
-# dem = "/Volumes/my_hd/htf_on_roads/noaa_elevation/carteret_test_dem.tif"
-dem = "North_Carolina_CoNED_Topobathy_DEM_1m.tif"
-dem_xarray = rio.open_rasterio(dem, chunks=True, lock=False)
+# # Load conversion raster
+# conversion = "resampled_conv_rast.tif"
+# conversion_xarray = rio.open_rasterio(conversion, chunks=True, lock=False)
 
+# mhhw_dem = dem_xarray - conversion_xarray
+# mhhw_dem.rio.set_nodata(dem_xarray.rio.nodata, inplace = True)
+# mhhw_dem = mhhw_dem.where(mhhw_dem != mhhw_dem.rio.nodata)
+# mhhw_dem.rio.write_nodata(mhhw_dem.rio.nodata, encoded = True, inplace = True)
 
-# Load conversion raster
-# conversion = "/Volumes/my_hd/htf_on_roads/files_for_longleaf/resampled_conv_rast.tif"
-conversion = "resampled_conv_rast.tif"
-conversion_xarray = rio.open_rasterio(conversion, chunks=True, lock=False)
+# with ProgressBar():
+#     mhhw_dem.rio.to_raster(Path("output/dems/mhhw_dem_1m.tif"), windowed=True, tiled = True, lock=threading.Lock(), compress='lzw', BIGTIFF="YES") #4 hr 49 mins
 
-mhhw_dem = dem_xarray - conversion_xarray
-mhhw_dem.rio.set_nodata(dem_xarray.rio.nodata, inplace = True)
-mhhw_dem = mhhw_dem.where(mhhw_dem != mhhw_dem.rio.nodata)
-mhhw_dem.rio.write_nodata(mhhw_dem.rio.nodata, encoded = True, inplace = True)
+# # Load mhhw dem
+# mhhw_dem = rio.open_rasterio("output/dems/mhhw_dem_1m.tif", chunks=True, lock=False)
 
-with ProgressBar():
-    mhhw_dem.rio.to_raster(Path("output/dems/mhhw_dem_1m.tif"), windowed=True, lock=threading.Lock(), compress='lzw') 
+# # Make a smaller DEM so we can do the following calcs quicker
+# mini_dem = xr.where((mhhw_dem >= 0) & (mhhw_dem <= 5), mhhw_dem, dem_xarray.rio.nodata)
+# mini_dem.rio.set_nodata(dem_xarray.rio.nodata, inplace = True)
+# mini_dem = mhhw_dem.where(mini_dem != mini_dem.rio.nodata)
+# mini_dem.rio.write_nodata(mini_dem.rio.nodata, encoded = True, inplace = True)
 
+# with ProgressBar():
+#     mini_dem.rio.to_raster(Path("output/dems/mhhw_zero_to_5m.tif"), windowed=True, lock=threading.Lock(), tiled = True, compress='lzw', BIGTIFF="YES") # 2 hr and 17 mins
 
-# Make a smaller DEM so we can do the following calcs quicker
-mini_dem = xr.where((mhhw_dem >= 0) & (mhhw_dem <= 5), mhhw_dem, dem_xarray.rio.nodata)
-mini_dem.rio.set_nodata(dem_xarray.rio.nodata, inplace = True)
-mini_dem = mhhw_dem.where(mini_dem != mini_dem.rio.nodata)
-mini_dem.rio.write_nodata(mini_dem.rio.nodata, encoded = True, inplace = True)
+# Load mini dem
+mini_dem = rio.open_rasterio("output/dems/mhhw_zero_to_5m.tif", chunks=True, lock=False)
 
-with ProgressBar():
-    mini_dem.rio.to_raster(Path("output/dems/mhhw_zero_to_5m.tif"), windowed=True, lock=threading.Lock(), compress='lzw') 
+# # make water level below zero m to get permanent water surface
+# water_mask = xr.where((mhhw_dem <= 0), 1, 0)
+# water_mask = water_mask.astype("int16")
 
+# water_mask.rio.set_nodata(0, inplace = True)
+# water_mask = water_mask.where(water_mask != water_mask.rio.nodata)
+# water_mask.rio.write_nodata(0, encoded = True, inplace = True)
+# water_mask.rio.write_crs(CRS.from_cf(mhhw_dem.spatial_ref.attrs), inplace=True)
 
-# make water level below zero m to get permanent water surface
-create_water_surfaces(dem_xarray = mhhw_dem,
-                      max_wl = 0,
-                      min_wl = -100,
-                      directory = "output/model_results/water_mask")
+# Path("output/model_results/water_mask/").mkdir(parents=True, exist_ok= True)
+# with ProgressBar():
+#     water_mask.rio.to_raster(Path("output/model_results/water_mask/water_mask.tif"), windowed=True, dtype = "int16", lock=threading.Lock(), tiled = True, compress='lzw', BIGTIFF="YES") # 50 minutes or so
+
+# # water_mask_path = os.path.realpath("output/model_results/water_mask/water_mask.tif")
+# with rasterio.open("output/model_results/water_mask/water_mask.tif") as src:
+#         crs = to_string(src.crs)
+#         src_band = src.read(1)
+#         # Keep track of unique pixel values in the input band
+#         unique_values = np.array([1], dtype="int16")
+#         # np.unique(src_band)
+#         # Polygonize with Rasterio. `shapes()` returns an iterable
+#         # of (geom, value) as tuples
+#         shapes = list(rasterio.features.shapes(src_band, transform=src.transform))
+
+# shp_schema = {
+#     'geometry': 'MultiPolygon',
+#     'properties': {'pixelvalue': 'int'}
+# }
+
+# with fiona.open(Path("output/model_results/water_mask/water_mask.shp"), 'w', 'ESRI Shapefile', shp_schema, crs) as shp:
+#     for pixel_value in unique_values:
+#         polygons = [shape(geom) for geom, value in shapes
+#                     if value == pixel_value]
+#         multipolygon = MultiPolygon(polygons)
+#         shp.write({
+#             'geometry': mapping(multipolygon),
+#             'properties': {'pixelvalue': int(pixel_value)}
+#         })
 
 
 # Iterate through max water levels to model
-water_levels = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-water_level_labels = ["zero_to_point1", "zero_to_point2", "zero_to_point3", "zero_to_point4", "zero_to_point5", "zero_to_point6", "zero_to_point7", "zero_to_point8", "zero_to_point9", "zero_to_1"]
+water_levels = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0] #0.1, 0.2, 0.3,
+water_level_labels = ["zero_to_point4", "zero_to_point5", "zero_to_point6", "zero_to_point7", "zero_to_point8", "zero_to_point9", "zero_to_1"] #"zero_to_point1", "zero_to_point2", "zero_to_point3", 
 
 for index, value in enumerate(water_levels):
     create_water_surfaces(dem_xarray = mini_dem,
