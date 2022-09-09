@@ -6,44 +6,50 @@ using GeoInterface
 
 #------------------------- Measuring and summarizing impact of HTF on roadways -------------------
 # Load road segments. We will use the 'road_segments' for every calculation
-road_segments = SF.st_read("data/nc_road_lines_w_nodes_proj.gpkg")
+road_segments = SF.st_read("/Users/adam/Downloads/osm_edges.gpkg")
 
-# Load buffered roadways
-buffered_roads = SF.st_read("data/nc_road_lines_w_nodes_proj.gpkg")
+# # Load buffered roadways
+# buffered_roads = SF.st_read("data/nc_road_lines_w_nodes_proj.gpkg")
+
+# htf_polygons = SF.st_read("/Users/adam/Downloads/htf_on_rds.fgb")
 
 # Define our 'impact' function. Here's how it works:
 #   STEPS
 #   ------
 #   1) Based on buffered roadways and HTF, we are going 
-#   to find the roadway segments that may be impacted by HTF (based on broader 'way_id').
+#   to find the roadway segments that may be impacted by HTF (based on broader 'id').
 #
 #   2) We will filter down more to find the specific road segments that intersect HTF, and then buffer them accordingly
 #
 #   3) We will use the road centerline of each impacted road segment, to create perpindicular lines every 1 meter that 
 #   exactly span the roadway.
 #
-#   4) HTF polygons contain the road id (:way_id) and the confidence class (low or high confidence). We want to estimate 
+#   4) HTF polygons contain the road id (:id) and the confidence class (low or high confidence). We want to estimate 
 #   the roadway width coverage of each confidence class of HTF. We do this by taking the length of each perpindicular line 
 #   across the road, erasing the high confidence HTF polygons from the line, finding the new length, then doing the same
 #   thing with the low confidence HTF polygons. Each perpindicular roadway line now has a high confidence HTF roadway width
 #   coverage and a low confidence HTF roadway coverage that are in % of roadway width. These will be reported as a range of
 #   minimum roadway coverage (high confidence) and maximum roadway coverage (high confidence + low confidence)
 
-function classify_road_flooding(;road_segments::sf.SimpleFeature, htf_polygons::sf.SimpleFeature)
+function classify_road_flooding(;road_segments::SF.SimpleFeature, htf_polygons::SF.SimpleFeature)
 
-    roads_affected = htf_polygons.df.way_id
-        
-    filtered_road_segments = filter(:way_id => n -> n in roads_affected, road_segments.df)
-    filtered_road_segments.buffer_distance =  filtered_road_segments.lanes * 2.5
+    roads_affected = Set(htf_polygons.df[:,id_column])
+    
+    filtered_road_segments = @rsubset(road_segments, :id in roads_affected)
+    replace!(filtered_road_segments.df.lanes, missing => "2")
+    @rtransform!(filtered_road_segments, :lanes = tryparse(Int, :lanes))
+    replace!(filtered_road_segments.df.lanes, nothing => 2)
 
-    filtered_road_segments[!, :geom] = sf.sfgeom_to_gdal(filtered_road_segments.geom)
+    @transform!(filtered_road_segments, :buffer_distance = 2.5 * :lanes)
 
-    htf_polygons_df = sf.sf_to_df(htf_polygons);
-    combined_htf_polygons_df = sf.sf_to_df(sf.st_cast(htf_polygons, "multipolygon"; groupid="gridcode"))
+    filtered_road_segments_df = SF.sf_to_df(filtered_road_segments)
+    # filtered_road_segments[!, :geom] = SF.from_sfgeom(filtered_road_segments.df.geom, to = "gdal")
 
-    high_confidence_htf_polygons_df = filter(:gridcode => n -> n === 1, combined_htf_polygons_df)
-    low_confidence_htf_polygons_df = filter(:gridcode => n -> n === 0, combined_htf_polygons_df)
+    htf_polygons_df = SF.sf_to_df(htf_polygons);
 
+    high_confidence_htf_polygons_df = SF.sf_to_df(SF.st_combine(@rsubset(htf_polygons[:,["DN","geom"]], :DN === 1)))
+    low_confidence_htf_polygons_df = SF.sf_to_df(@rsubset(htf_polygons, :DN === 0))
+    
     road_segments_impacted = DataFrame()
 
     @showprogress for row in eachrow(htf_polygons_df)
@@ -148,6 +154,6 @@ function classify_road_flooding(;road_segments::sf.SimpleFeature, htf_polygons::
      return impact_classified_roads
 end
 
-htf_polygons = sf.st_read("htf_polygons_location_here")
+htf_polygons = SF.st_read("/Users/adam/Downloads/htf_on_rds_int.gpkg")
 
 @time htf_polygons_impact_df = classify_road_flooding(;road_segments=road_segments, htf_polygons=htf_polygons)  

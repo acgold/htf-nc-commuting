@@ -8,7 +8,7 @@ osm_ways <- terra::vect("/pine/scr/a/c/acgold/output/osm/ways/osm_ways.gpkg")
 
 
 #---------- 2. Parse the lanes + calc buffer distance + buffer ----
-osm_ways <- osm_ways[,"lanes"]
+osm_ways <- osm_ways[,c("id", "lanes")] 
 osm_ways$lanes = as.numeric(osm_ways$lanes)
 osm_ways$lanes[is.na(osm_ways$lanes)] <- 2
 osm_ways$buffer_distance <- osm_ways$lanes * 2.5
@@ -19,9 +19,6 @@ buffered_osm_ways <- osm_ways |>
 rm(osm_ways)
 
 #---------- 3. Write the buffer to file -----------------
-# buffered_osm_ways_path <- "output/osm/ways/buffered_osm_ways.gpkg"
-# buffered_osm_ways_path <- "/Volumes/my_hd/osm/buffered_osm_ways.gpkg"
-
 terra::writeVector(buffered_osm_ways, "/pine/scr/a/c/acgold/output/osm/ways/buffered_osm_ways.gpkg")
 
 #--------- 4. Rasterize the roads to the HTF rasters -----------
